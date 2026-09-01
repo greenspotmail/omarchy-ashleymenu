@@ -5,6 +5,7 @@ import QtQuick
 import qs.Commons
 import qs.Ui
 import "MenuModel.js" as MenuModel
+import "NotesModel.js" as NotesModel
 
 Item {
   id: root
@@ -81,6 +82,22 @@ Item {
   property bool deleteConfirmOpen: false
   property var deleteTarget: null
   onOpenedChanged: if (!opened) { deleteConfirmOpen = false; deleteTarget = null }
+
+  // Notes browsing — merged in from the standalone noteslauncher plugin.
+  // A self-contained mode within this same docked card, parallel to how
+  // dmenuActive already switches this component's rendering/keys; picking
+  // the "notes" row from the root menu enters it directly (see
+  // activateIndex) rather than going through the generic item-tree/provider
+  // system, since a nested, on-disk folder browser doesn't fit that shape.
+  property bool notesMode: false
+  property string notesRoot: Quickshell.env("HOME") + "/Documents/notes"
+  property var notesTree: ({ children: ({}), files: [] })
+  property var notesPathStack: []
+  property string notesFilterText: ""
+  property int notesSelectedIndex: 0
+  property bool notesAdding: false
+  property string notesAddKind: "note"
+  property string notesNewText: ""
   // Bound to the central [menu] section in shell.toml via Color.qml.
   // Each color already includes its alpha companion (composed in the
   // singleton), so consumers can drop them straight into a Rectangle.
@@ -261,12 +278,169 @@ Item {
     root.itemOrder = mergedMenu.itemOrder
     root.rowsLoaded = true
     root.evaluateGuards()
+    root.repositionNotesEntry()
     if (root.opened) {
       root.rebuildDisplay()
       if (!root.dmenuActive) {
         if (root.filterText.trim()) root.loadProvidersForSearch()
         else root.loadProviderForMenu(root.activeMenu)
       }
+    }
+  }
+
+  // "notes" is declared fresh in the user's JSONC extension, so a normal
+  // merge appends it after every default id instead of where it's actually
+  // wanted (just above Setup). Splice it into place once per rebuild rather
+  // than fighting the merge order for one row.
+  function repositionNotesEntry() {
+    var order = root.itemOrder
+    var notesIdx = order.indexOf("notes")
+    var setupIdx = order.indexOf("setup")
+    if (notesIdx === -1 || setupIdx === -1 || notesIdx === setupIdx - 1) return
+    var next = order.slice()
+    next.splice(notesIdx, 1)
+    next.splice(next.indexOf("setup"), 0, "notes")
+    root.itemOrder = next
+  }
+
+  // ------------------------------------------------------------------
+  // Notes browsing (merged from noteslauncher). Mirrors that plugin's
+  // Notes.qml almost exactly — tree browse/search/create — just renamed
+  // onto this component's `notes*` namespace and restyled to sit inside
+  // the docked card instead of its own centered popup.
+  // ------------------------------------------------------------------
+
+  function openNotes() {
+    root.notesMode = true
+    root.notesFilterText = ""
+    root.notesPathStack = []
+    root.notesSelectedIndex = 0
+    root.notesAdding = false
+    root.refreshNotesFiles()
+  }
+
+  function closeNotes() {
+    root.notesMode = false
+    root.notesAdding = false
+  }
+
+  function refreshNotesFiles() {
+    notesListProc.running = false
+    notesListProc.running = true
+  }
+
+  function loadNotesFiles(raw) {
+    root.notesTree = NotesModel.buildTree(NotesModel.parseEntries(raw))
+    if (root.notesMode) root.rebuildNotesDisplay()
+  }
+
+  function rebuildNotesDisplay() {
+    var rows
+    if (root.notesFilterText) {
+      var all = NotesModel.flattenFiles(root.notesTree, [])
+      rows = NotesModel.filterFiles(all, root.notesFilterText, 200)
+    } else {
+      var node = NotesModel.nodeAtPath(root.notesTree, root.notesPathStack)
+      if (!node) {
+        root.notesPathStack = []
+        node = root.notesTree
+      }
+      rows = NotesModel.childrenOf(node)
+    }
+
+    notesDisplayModel.clear()
+    for (var i = 0; i < rows.length; i++) notesDisplayModel.append(rows[i])
+
+    if (notesDisplayModel.count === 0) root.notesSelectedIndex = 0
+    else if (root.notesSelectedIndex >= notesDisplayModel.count) root.notesSelectedIndex = notesDisplayModel.count - 1
+    else if (root.notesSelectedIndex < 0) root.notesSelectedIndex = 0
+  }
+
+  function notesSelect(delta) {
+    if (notesDisplayModel.count === 0) return
+    root.notesSelectedIndex = (root.notesSelectedIndex + delta + notesDisplayModel.count) % notesDisplayModel.count
+    notesResultList.positionViewAtIndex(root.notesSelectedIndex, ListView.Contain)
+  }
+
+  function setNotesFilter(nextFilter) {
+    root.notesFilterText = nextFilter
+    root.notesSelectedIndex = 0
+    root.rebuildNotesDisplay()
+  }
+
+  function notesCurrentRow() {
+    if (root.notesSelectedIndex < 0 || root.notesSelectedIndex >= notesDisplayModel.count) return null
+    return notesDisplayModel.get(root.notesSelectedIndex)
+  }
+
+  function notesDrillInto(name) {
+    root.notesPathStack = root.notesPathStack.concat([name])
+    root.notesSelectedIndex = 0
+    root.setNotesFilter("")
+  }
+
+  function notesDrillUp() {
+    if (root.notesPathStack.length === 0) return
+    root.notesPathStack = root.notesPathStack.slice(0, -1)
+    root.notesSelectedIndex = 0
+    root.rebuildNotesDisplay()
+  }
+
+  function notesActivateSelected() {
+    var row = root.notesCurrentRow()
+    if (!row) return
+    if (row.type === "folder") root.notesDrillInto(row.name)
+    else root.openNoteFile(row.path)
+  }
+
+  function openNoteFile(relPath) {
+    Quickshell.execDetached(["omarchy-launch-terminal", "nvim", root.notesRoot + "/" + relPath])
+    root.cancel()
+  }
+
+  function startNotesAdd() {
+    root.notesAddKind = root.notesPathStack.length === 0 ? "folder" : "note"
+    root.notesAdding = true
+    root.notesNewText = ""
+  }
+
+  function cancelNotesAdd() {
+    root.notesAdding = false
+    root.notesNewText = ""
+  }
+
+  function submitNotesAdd() {
+    var name = NotesModel.sanitizeName(root.notesNewText)
+    if (!name) return
+
+    if (root.notesAddKind === "folder") {
+      notesCreateFolderProc.command = ["mkdir", "-p", root.notesRoot + "/" + name]
+      notesCreateFolderProc.running = false
+      notesCreateFolderProc.running = true
+    } else {
+      var relPath = root.notesPathStack.concat([name + ".md"]).join("/")
+      root.openNoteFile(relPath)
+    }
+  }
+
+  ListModel { id: notesDisplayModel }
+
+  Process {
+    id: notesCreateFolderProc
+    onExited: {
+      root.notesAdding = false
+      root.notesNewText = ""
+      root.refreshNotesFiles()
+    }
+  }
+
+  Process {
+    id: notesListProc
+    command: ["find", root.notesRoot, "-mindepth", "1", "-not", "-path", "*/.*",
+              "(", "-type", "d", "-o", "-name", "*.md", ")", "-printf", "%y\t%P\t%T@\n"]
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: root.loadNotesFiles(text)
     }
   }
 
@@ -739,7 +913,9 @@ Item {
     if (index < 0 || index >= displayModel.count) return
 
     var row = displayModel.get(index)
-    if (row.kind === "menu" || row.kind === "link") {
+    if (row.itemId === "notes") {
+      root.openNotes()
+    } else if (row.kind === "menu" || row.kind === "link") {
       root.setActiveMenu(row.target || row.itemId, true, fromPointer)
     } else if (row.kind === "app") {
       var appId = row.appId
@@ -811,6 +987,7 @@ Item {
     navStack = []
     filterText = ""
     selectedIndex = 0
+    root.closeNotes()
     cursorActive = true
     root.disarmPointer()
     root.evaluateGuards()
@@ -1146,6 +1323,60 @@ Item {
             return
           }
 
+          if (root.notesMode) {
+            if (root.notesAdding) {
+              if (event.key === Qt.Key_Escape) {
+                root.cancelNotesAdd()
+                event.accepted = true
+              } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+                root.submitNotesAdd()
+                event.accepted = true
+              } else if (Util.editsFilter(event, root.notesNewText)) {
+                root.notesNewText = Util.editedFilter(event, root.notesNewText)
+                event.accepted = true
+              } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127) {
+                root.notesNewText += event.text
+                event.accepted = true
+              }
+              return
+            }
+
+            if (event.key === Qt.Key_Escape) {
+              if (root.notesFilterText) root.setNotesFilter("")
+              else root.closeNotes()
+              event.accepted = true
+            } else if (event.key === Qt.Key_Tab) {
+              root.startNotesAdd()
+              event.accepted = true
+            } else if (Util.editsFilter(event, root.notesFilterText)) {
+              root.setNotesFilter(Util.editedFilter(event, root.notesFilterText))
+              event.accepted = true
+            } else if (event.key === Qt.Key_Backspace && !root.notesFilterText && root.notesPathStack.length > 0) {
+              root.notesDrillUp()
+              event.accepted = true
+            } else if (event.key === Qt.Key_Up) {
+              root.notesSelect(-1)
+              event.accepted = true
+            } else if (event.key === Qt.Key_Down) {
+              root.notesSelect(1)
+              event.accepted = true
+            } else if (event.key === Qt.Key_Right && !root.notesFilterText) {
+              var nrow = root.notesCurrentRow()
+              if (nrow && nrow.type === "folder") root.notesDrillInto(nrow.name)
+              event.accepted = true
+            } else if (event.key === Qt.Key_Left && !root.notesFilterText && root.notesPathStack.length > 0) {
+              root.notesDrillUp()
+              event.accepted = true
+            } else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) {
+              root.notesActivateSelected()
+              event.accepted = true
+            } else if (event.text && event.text.length === 1 && event.text.charCodeAt(0) >= 32 && event.text.charCodeAt(0) !== 127 && (event.modifiers === Qt.NoModifier || event.modifiers === Qt.ShiftModifier)) {
+              root.setNotesFilter(root.notesFilterText + event.text)
+              event.accepted = true
+            }
+            return
+          }
+
           if (event.key === Qt.Key_Delete) {
             root.requestDeleteSelected()
             event.accepted = true
@@ -1225,9 +1456,13 @@ Item {
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            text: root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…"))
+            text: root.notesMode
+              ? (root.notesAdding
+                  ? (root.notesNewText || (root.notesAddKind === "folder" ? "New folder…" : "New note in " + root.notesPathStack.join("/") + "…"))
+                  : (root.notesFilterText || (root.notesPathStack.length ? root.notesPathStack.join(" ▸ ") : "Notes") + "…"))
+              : (root.filterText || (root.dmenuActive ? (root.dmenuPrompt + "…") : ((root.item(root.activeMenu) ? (root.item(root.activeMenu).title || root.item(root.activeMenu).label) : "Go") + "…")))
             color: root.foreground
-            opacity: root.filterText ? 1 : 0.58
+            opacity: (root.notesMode ? (root.notesAdding ? root.notesNewText : root.notesFilterText) : root.filterText) ? 1 : 0.58
             font.family: root.fontFamily
             font.pixelSize: Style.font.heading
             elide: Text.ElideRight
@@ -1236,6 +1471,7 @@ Item {
         }
 
         Item {
+          visible: !root.notesMode
           width: parent.width
           // Docked mode fills all remaining card height instead of hugging
           // content, so the list reads as a full sidebar. Dmenu popups keep
@@ -1488,6 +1724,212 @@ Item {
               font.pixelSize: Style.font.title
               horizontalAlignment: Text.AlignHCenter
               width: Style.space(320)
+            }
+          }
+        }
+
+        Item {
+          id: notesWrap
+          visible: root.notesMode
+          width: parent.width
+          height: menuColumn.height - headerRow.height - root.contentSpacing * 2
+
+          Column {
+            id: notesTopColumn
+            width: parent.width
+            spacing: Style.spacing.sm
+
+            Item {
+              id: notesNewLinkRow
+              visible: !root.notesAdding && !root.notesFilterText
+              width: parent.width
+              height: notesNewLinkText.implicitHeight
+
+              Text {
+                id: notesNewLinkText
+                anchors.left: parent.left
+                text: root.notesPathStack.length === 0 ? "+ New folder (Tab)" : "+ New note (Tab)"
+                color: root.selectedText
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.subtitle
+
+                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.startNotesAdd() }
+              }
+            }
+
+            Item {
+              id: notesBreadcrumbRow
+              visible: !root.notesAdding && !root.notesFilterText && root.notesPathStack.length > 0
+              width: parent.width
+              height: notesBackLink.implicitHeight
+
+              Row {
+                id: notesBackLink
+                spacing: Style.spacing.xs
+
+                Text {
+                  text: "‹ Back"
+                  color: root.selectedText
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.subtitle
+
+                  MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.notesDrillUp() }
+                }
+
+                Text {
+                  textFormat: Text.PlainText
+                  text: "—  " + root.notesPathStack.join(" ▸ ")
+                  color: root.foreground
+                  opacity: 0.7
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.subtitle
+                }
+              }
+            }
+
+            // Slides down from 0 height when Tab starts a new folder/note —
+            // same input row either way, addKind just changes the placeholder
+            // and what submitNotesAdd() does with it.
+            Item {
+              id: notesAddRow
+              width: parent.width
+              height: root.notesAdding ? notesAddRowBg.implicitHeight : 0
+              clip: true
+
+              Behavior on height {
+                NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
+              }
+
+              Rectangle {
+                id: notesAddRowBg
+                width: parent.width
+                implicitHeight: Style.space(44)
+                radius: root.cornerRadius
+                color: Util.alpha(root.selectedBackground, 0.5)
+
+                Text {
+                  textFormat: Text.PlainText
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.leftMargin: Style.space(12)
+                  anchors.rightMargin: Style.space(12)
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.notesNewText || (root.notesAddKind === "folder" ? "New folder name…" : "New note name…")
+                  color: root.foreground
+                  opacity: root.notesNewText ? 1 : 0.5
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.body
+                  elide: Text.ElideRight
+                }
+              }
+            }
+          }
+
+          Item {
+            id: notesListArea
+            anchors.top: notesTopColumn.bottom
+            anchors.topMargin: Style.spacing.sm
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            clip: true
+
+            ListView {
+              id: notesResultList
+              anchors.fill: parent
+              model: notesDisplayModel
+              clip: true
+              spacing: root.rowSpacing
+              boundsBehavior: Flickable.StopAtBounds
+
+              delegate: BorderSurface {
+                id: nrow
+                required property int index
+                required property string type
+                required property string name
+                required property string subtitle
+
+                readonly property bool hasCursor: root.notesSelectedIndex === nrow.index
+
+                width: ListView.view.width
+                height: root.baseRowHeight
+                radius: root.cornerRadius
+                color: nrow.hasCursor ? root.selectedBackground : "transparent"
+                borderSpec: nrow.hasCursor ? root.selectedBorderSpec : Border.none()
+
+                Column {
+                  anchors.left: parent.left
+                  anchors.right: notesTrail.left
+                  anchors.leftMargin: root.rowReservedBorderLeft + Style.space(18)
+                  anchors.rightMargin: Style.space(6)
+                  anchors.verticalCenter: parent.verticalCenter
+                  spacing: Style.space(3)
+
+                  Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    text: nrow.name
+                    color: nrow.hasCursor ? root.selectedText : root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.heading
+                    font.weight: Font.Medium
+                    elide: Text.ElideRight
+                  }
+
+                  Text {
+                    textFormat: Text.PlainText
+                    width: parent.width
+                    text: nrow.subtitle
+                    visible: nrow.type === "file" && nrow.subtitle.length > 0
+                    color: nrow.hasCursor ? root.selectedText : root.foreground
+                    opacity: 0.52
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    elide: Text.ElideRight
+                  }
+                }
+
+                Text {
+                  id: notesTrail
+                  textFormat: Text.PlainText
+                  anchors.right: parent.right
+                  anchors.rightMargin: root.rowReservedBorderRight + Style.space(8)
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: nrow.type === "folder" ? "›" : ""
+                  color: nrow.hasCursor ? root.selectedText : root.foreground
+                  opacity: nrow.type === "folder" ? 0.36 : 0
+                  font.family: root.fontFamily
+                  font.pixelSize: Style.font.heading
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: {
+                    root.notesSelectedIndex = nrow.index
+                    root.notesActivateSelected()
+                  }
+                }
+              }
+            }
+
+            Column {
+              anchors.centerIn: parent
+              spacing: Style.space(6)
+              visible: notesDisplayModel.count === 0
+
+              Text {
+                textFormat: Text.PlainText
+                text: root.notesFilterText
+                  ? "No matches"
+                  : (root.notesPathStack.length > 0 ? "Nothing here yet — press Tab to create a note" : "No categories yet — press Tab to create one")
+                color: root.foreground
+                opacity: 0.6
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.title
+                horizontalAlignment: Text.AlignHCenter
+              }
             }
           }
         }
