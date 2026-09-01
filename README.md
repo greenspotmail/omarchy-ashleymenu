@@ -28,14 +28,13 @@ above Setup) drops you into a browser for `~/Documents/notes/`:
 - Lists every top-level folder under the notes root as a category
   (`jrnl/`, `notes/`, `recipes/`, and anything else you `mkdir` later —
   not hardcoded), most-recently-modified file first once you're inside one.
-- `Tab` creates something. A new note inside a category slides a small
-  input down from the top of the sidebar, same as before. A new top-level
-  category instead pops open `notesFolderInput` — a floating box centered
-  on the whole screen (~35% of its width, resting about an inch below the
-  top edge) rather than the sidebar, since "new category" felt like it
-  deserved to stand apart from browsing. Both defer to `submitNotesAdd()`;
-  a typed note isn't written to disk until you save it in `nvim`, so
-  backing out with `:q` leaves no trace — a folder is created immediately.
+- `Tab` creates something — a new top-level category at the root, or a
+  new note inside a category. Either way it pops open `notesAddInput`, a
+  floating box centered on the whole screen (~35% of its width, resting
+  about half an inch below the top edge) rather than the sidebar, so
+  creating something never disturbs the list you're browsing. A typed
+  note isn't written to disk until you save it in `nvim`, so backing out
+  with `:q` leaves no trace — a folder is created immediately.
 - `Enter`/`→` opens a file (in `nvim`, via `omarchy-launch-terminal`) or
   drills into a folder; `←`/`Backspace` drills back up; typing searches
   every file across every category at once; `Esc` clears the search, then

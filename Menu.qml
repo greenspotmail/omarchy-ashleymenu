@@ -1796,42 +1796,6 @@ Item {
               }
             }
 
-            // Slides down from 0 height when Tab starts a new note — a new
-            // folder instead uses notesFolderInput, a floating box centered
-            // on the whole screen rather than this sidebar (see below).
-            Item {
-              id: notesAddRow
-              width: parent.width
-              height: (root.notesAdding && root.notesAddKind === "note") ? notesAddRowBg.implicitHeight : 0
-              clip: true
-
-              Behavior on height {
-                NumberAnimation { duration: 170; easing.type: Easing.OutCubic }
-              }
-
-              Rectangle {
-                id: notesAddRowBg
-                width: parent.width
-                implicitHeight: Style.space(44)
-                radius: root.cornerRadius
-                color: Util.alpha(root.selectedBackground, 0.5)
-
-                Text {
-                  textFormat: Text.PlainText
-                  anchors.left: parent.left
-                  anchors.right: parent.right
-                  anchors.leftMargin: Style.space(12)
-                  anchors.rightMargin: Style.space(12)
-                  anchors.verticalCenter: parent.verticalCenter
-                  text: root.notesNewText || "New note name…"
-                  color: root.foreground
-                  opacity: root.notesNewText ? 1 : 0.5
-                  font.family: root.fontFamily
-                  font.pixelSize: Style.font.body
-                  elide: Text.ElideRight
-                }
-              }
-            }
           }
 
           Item {
@@ -1950,15 +1914,17 @@ Item {
       }
     }
 
-    // New-category input: a floating box centered on the whole screen
-    // (not the docked sidebar), ~35% of screen width, resting about an
-    // inch below the top edge. Stays mounted the whole time notesMode is
-    // active and only its y position animates, parked off-screen above
-    // when not revealed — same reasoning as the menu card's own open/close
-    // slide: an item has to stay visible for a slide-away animation to
-    // actually render, so this never toggles `visible` on the fly.
+    // New-category/new-note input: a floating box centered on the whole
+    // screen (not the docked sidebar), ~35% of screen width, resting about
+    // half an inch below the top edge. Used for both add kinds now — the
+    // placeholder just switches on notesAddKind. Stays mounted the whole
+    // time notesMode is active and only its y position animates, parked
+    // off-screen above when not revealed — same reasoning as the menu
+    // card's own open/close slide: an item has to stay visible for a
+    // slide-away animation to actually render, so this never toggles
+    // `visible` on the fly.
     BorderSurface {
-      id: notesFolderInput
+      id: notesAddInput
       visible: root.notesMode
       width: Math.round(panel.width * 0.35)
       height: Style.space(52)
@@ -1968,8 +1934,8 @@ Item {
       x: Math.round((panel.width - width) / 2)
 
       readonly property real oneInch: Screen.pixelDensity > 0 ? Screen.pixelDensity * 25.4 : 100
-      readonly property bool revealed: root.notesAdding && root.notesAddKind === "folder"
-      y: revealed ? Math.round(oneInch) : -height - Style.gapsOut
+      readonly property bool revealed: root.notesAdding
+      y: revealed ? Math.round(oneInch * 0.5) : -height - Style.gapsOut
 
       Behavior on y {
         NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
@@ -1981,7 +1947,7 @@ Item {
         anchors.leftMargin: Style.space(14)
         anchors.rightMargin: Style.space(14)
         verticalAlignment: Text.AlignVCenter
-        text: root.notesNewText || "New category name…"
+        text: root.notesNewText || (root.notesAddKind === "folder" ? "New category name…" : "New note name…")
         color: root.foreground
         opacity: root.notesNewText ? 1 : 0.5
         font.family: root.fontFamily
