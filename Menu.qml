@@ -1752,17 +1752,18 @@ Item {
               id: notesNewLinkRow
               visible: !root.notesAdding && !root.notesFilterText
               width: parent.width
-              height: notesNewLinkText.implicitHeight
+              height: notesNewButton.implicitHeight
 
-              Text {
-                id: notesNewLinkText
+              Button {
+                id: notesNewButton
                 anchors.left: parent.left
+                bordered: true
                 text: root.notesPathStack.length === 0 ? "+ New folder (Tab)" : "+ New note (Tab)"
-                color: root.selectedText
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.subtitle
-
-                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.startNotesAdd() }
+                fontFamily: root.fontFamily
+                fontSize: Style.font.subtitle
+                foreground: root.selectedText
+                accent: root.selectedText
+                onClicked: root.startNotesAdd()
               }
             }
 
@@ -1889,11 +1890,14 @@ Item {
 
             Column {
               anchors.centerIn: parent
+              width: parent.width - Style.space(24)
               spacing: Style.space(6)
               visible: notesDisplayModel.count === 0
 
               Text {
                 textFormat: Text.PlainText
+                width: parent.width
+                wrapMode: Text.WordWrap
                 text: root.notesFilterText
                   ? "No matches"
                   : (root.notesPathStack.length > 0 ? "Nothing here yet — press Tab to create a note" : "No categories yet — press Tab to create one")
