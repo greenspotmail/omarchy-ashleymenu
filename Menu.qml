@@ -1036,7 +1036,11 @@ Item {
     color: "transparent"
     WlrLayershell.namespace: "omarchy-menu"
     WlrLayershell.layer: WlrLayer.Overlay
-    WlrLayershell.keyboardFocus: root.opened ? WlrKeyboardFocus.Exclusive : WlrKeyboardFocus.None
+    // Stays Exclusive for the whole time the surface is mapped (including
+    // the brief closingAnim tail) rather than reacting to root.opened —
+    // switching this while mapped forces the compositor to redo the
+    // surface's layer-shell role for a frame, which is the flash on close.
+    WlrLayershell.keyboardFocus: WlrKeyboardFocus.Exclusive
     exclusionMode: ExclusionMode.Ignore
 
     Timer {
