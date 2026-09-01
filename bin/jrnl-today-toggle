@@ -1,0 +1,21 @@
+#!/bin/bash
+# omarchy:summary=Toggle a floating scratchpad terminal for today's journal entry
+set -euo pipefail
+
+DATE="$(date +%F)"
+FILE="$HOME/Documents/notes/jrnl/$DATE.md"
+CLASS="omarchy-jrnl-today"
+SOCK="${XDG_RUNTIME_DIR:-/tmp}/omarchy-jrnl-today.sock"
+
+mkdir -p "$(dirname "$FILE")"
+[[ -f "$FILE" ]] || printf '# %s\n\n' "$DATE" > "$FILE"
+
+if [[ -S "$SOCK" ]] && hyprctl clients -j | jq -e --arg class "$CLASS" '.[] | select(.class == $class)' >/dev/null 2>&1; then
+  # Already running - make sure it's showing today's entry (handles the
+  # scratchpad having been left open since a previous day), then toggle.
+  nvim --server "$SOCK" --remote "$FILE" >/dev/null 2>&1 || true
+  hyprctl dispatch 'hl.dsp.workspace.toggle_special("jrnl-today")'
+else
+  rm -f "$SOCK"
+  exec setsid uwsm-app -- xdg-terminal-exec --app-id="$CLASS" --title="Journal" -e nvim --listen "$SOCK" "$FILE"
+fi

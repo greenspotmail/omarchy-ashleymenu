@@ -1049,6 +1049,15 @@ Item {
     }
     // If it's a link (a redirect to another menu), follow the link.
     if (entry && entry.kind === "link" && entry.target) id = entry.target
+    // "notes" has no real children under the generic item tree — its
+    // browsing is the bespoke notesMode state — so a direct route to it
+    // (e.g. a keybinding) has to open the root menu and then switch into
+    // notes mode, same as picking the row by hand would.
+    if (id === "notes") {
+      root.openExistingMenu("root")
+      root.openNotes()
+      return "ok"
+    }
     root.pendingInitialMenu = id
     root.openExistingMenu(id)
     return "ok"
@@ -1787,13 +1796,13 @@ Item {
               }
             }
 
-            // Slides down from 0 height when Tab starts a new folder/note —
-            // same input row either way, addKind just changes the placeholder
-            // and what submitNotesAdd() does with it.
+            // Slides down from 0 height when Tab starts a new note — a new
+            // folder instead uses notesFolderInput, a floating box centered
+            // on the whole screen rather than this sidebar (see below).
             Item {
               id: notesAddRow
               width: parent.width
-              height: root.notesAdding ? notesAddRowBg.implicitHeight : 0
+              height: (root.notesAdding && root.notesAddKind === "note") ? notesAddRowBg.implicitHeight : 0
               clip: true
 
               Behavior on height {
@@ -1814,7 +1823,7 @@ Item {
                   anchors.leftMargin: Style.space(12)
                   anchors.rightMargin: Style.space(12)
                   anchors.verticalCenter: parent.verticalCenter
-                  text: root.notesNewText || (root.notesAddKind === "folder" ? "New folder name…" : "New note name…")
+                  text: root.notesNewText || "New note name…"
                   color: root.foreground
                   opacity: root.notesNewText ? 1 : 0.5
                   font.family: root.fontFamily
@@ -1938,6 +1947,46 @@ Item {
           width: parent.width
           height: 0
         }
+      }
+    }
+
+    // New-category input: a floating box centered on the whole screen
+    // (not the docked sidebar), ~35% of screen width, resting about an
+    // inch below the top edge. Stays mounted the whole time notesMode is
+    // active and only its y position animates, parked off-screen above
+    // when not revealed — same reasoning as the menu card's own open/close
+    // slide: an item has to stay visible for a slide-away animation to
+    // actually render, so this never toggles `visible` on the fly.
+    BorderSurface {
+      id: notesFolderInput
+      visible: root.notesMode
+      width: Math.round(panel.width * 0.35)
+      height: Style.space(52)
+      radius: root.cornerRadius
+      color: root.background
+      borderSpec: root.borderSpec
+      x: Math.round((panel.width - width) / 2)
+
+      readonly property real oneInch: Screen.pixelDensity > 0 ? Screen.pixelDensity * 25.4 : 100
+      readonly property bool revealed: root.notesAdding && root.notesAddKind === "folder"
+      y: revealed ? Math.round(oneInch) : -height - Style.gapsOut
+
+      Behavior on y {
+        NumberAnimation { duration: 190; easing.type: Easing.OutCubic }
+      }
+
+      Text {
+        textFormat: Text.PlainText
+        anchors.fill: parent
+        anchors.leftMargin: Style.space(14)
+        anchors.rightMargin: Style.space(14)
+        verticalAlignment: Text.AlignVCenter
+        text: root.notesNewText || "New category name…"
+        color: root.foreground
+        opacity: root.notesNewText ? 1 : 0.5
+        font.family: root.fontFamily
+        font.pixelSize: Style.font.heading
+        elide: Text.ElideRight
       }
     }
   }

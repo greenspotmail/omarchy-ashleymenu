@@ -28,16 +28,45 @@ above Setup) drops you into a browser for `~/Documents/notes/`:
 - Lists every top-level folder under the notes root as a category
   (`jrnl/`, `notes/`, `recipes/`, and anything else you `mkdir` later —
   not hardcoded), most-recently-modified file first once you're inside one.
-- `Tab` slides a small input down from the top to create something —
-  a new top-level category at the root, or a new note inside a category.
-  A typed note isn't written to disk until you save it in `nvim`, so
-  backing out with `:q` leaves no trace.
+- `Tab` creates something. A new note inside a category slides a small
+  input down from the top of the sidebar, same as before. A new top-level
+  category instead pops open `notesFolderInput` — a floating box centered
+  on the whole screen (~35% of its width, resting about an inch below the
+  top edge) rather than the sidebar, since "new category" felt like it
+  deserved to stand apart from browsing. Both defer to `submitNotesAdd()`;
+  a typed note isn't written to disk until you save it in `nvim`, so
+  backing out with `:q` leaves no trace — a folder is created immediately.
 - `Enter`/`→` opens a file (in `nvim`, via `omarchy-launch-terminal`) or
   drills into a folder; `←`/`Backspace` drills back up; typing searches
   every file across every category at once; `Esc` clears the search, then
   backs out to the main menu.
 - Edit `notesRoot` near the top of `Menu.qml` to point somewhere other
   than `~/Documents/notes`.
+
+### Inbox / today's-journal scratchpads
+
+`bin/notes-inbox-toggle` and `bin/jrnl-today-toggle` are also carried over
+from noteslauncher unchanged — floating scratchpad terminals (Hyprland
+special-workspace, same as the default `SUPER+S` scratchpad) editing a
+fixed inbox note and today's journal entry respectively. Bind them in
+`~/.config/hypr/bindings.lua`:
+
+```lua
+hl.unbind("SUPER + SHIFT + N")
+o.bind("SUPER + SHIFT + N", "Notes", "omarchy-shell shell toggle ashley.menu '{\"menu\":\"notes\"}'")
+o.bind("SUPER + N", "Notes inbox", os.getenv("HOME") .. "/.config/omarchy/plugins/ashley.menu/bin/notes-inbox-toggle")
+o.bind("SUPER + D", "Today's journal", os.getenv("HOME") .. "/.config/omarchy/plugins/ashley.menu/bin/jrnl-today-toggle")
+```
+
+And in `~/.config/hypr/hyprland.lua` (window rules so the two scratchpads
+float, center, and land on their own special workspace):
+
+```lua
+o.window("omarchy-notes-inbox", { tag = "+floating-window" })
+o.window("omarchy-notes-inbox", { workspace = "special:notes-inbox" })
+o.window("omarchy-jrnl-today", { tag = "+floating-window" })
+o.window("omarchy-jrnl-today", { workspace = "special:jrnl-today" })
+```
 
 ## Assumptions
 

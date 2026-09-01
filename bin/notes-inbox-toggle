@@ -1,0 +1,15 @@
+#!/bin/bash
+# omarchy:summary=Toggle a floating scratchpad terminal editing 00_inbox.md
+set -euo pipefail
+
+FILE="$HOME/Documents/notes/notes/00_inbox.md"
+CLASS="omarchy-notes-inbox"
+
+mkdir -p "$(dirname "$FILE")"
+[[ -f "$FILE" ]] || touch "$FILE"
+
+if hyprctl clients -j | jq -e --arg class "$CLASS" '.[] | select(.class == $class)' >/dev/null; then
+  hyprctl dispatch 'hl.dsp.workspace.toggle_special("notes-inbox")'
+else
+  exec setsid uwsm-app -- xdg-terminal-exec --app-id="$CLASS" --title="Notes Inbox" -e nvim "$FILE"
+fi
