@@ -1030,8 +1030,16 @@ Item {
     // closingAnim's duration so its slide-out has time to actually render;
     // unmapping a layer surface hides it immediately, before any animation
     // frame would show (see Bar.qml's own note on the same tradeoff).
+    //
+    // `mapped` is the ONLY thing `visible` reacts to, and it is only ever
+    // written from the onOpenedChanged handler below and the close timer —
+    // never computed as `opened || closingAnim`. That combined form used to
+    // flicker false for a frame on close (root.opened flips first, closingAnim
+    // catches up a tick later in its own handler), which briefly unmapped the
+    // real Wayland surface — the flash and stutter the slide-out had.
     property bool closingAnim: false
-    visible: (root.opened || panel.closingAnim) && root.rowsLoaded
+    property bool mapped: false
+    visible: panel.mapped && root.rowsLoaded
     anchors { top: true; bottom: true; left: true; right: true }
     color: "transparent"
     WlrLayershell.namespace: "omarchy-menu"
@@ -1046,15 +1054,24 @@ Item {
     Timer {
       id: closeAnimTimer
       interval: 220
-      onTriggered: panel.closingAnim = false
+      onTriggered: {
+        panel.closingAnim = false
+        panel.mapped = false
+      }
     }
 
     Connections {
       target: root
       function onOpenedChanged() {
-        if (!root.opened && !root.dmenuActive) {
+        if (root.opened) {
+          closeAnimTimer.stop()
+          panel.closingAnim = false
+          panel.mapped = true
+        } else if (!root.dmenuActive) {
           panel.closingAnim = true
           closeAnimTimer.restart()
+        } else {
+          panel.mapped = false
         }
       }
     }
