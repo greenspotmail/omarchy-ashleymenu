@@ -3,6 +3,8 @@
 A restyled version of Omarchy's built-in app launcher/menu (`omarchy.menu`),
 cloned via `omarchy plugin clone omarchy.menu`.
 
+![screenshot](screenshot.png)
+
 Changes from stock:
 
 - **Docked left, full height** — the main nav menu sits flush against the
@@ -28,7 +30,7 @@ accordingly.
 ## Install
 
 ```bash
-omarchy plugin add <this-repo-url> --enable
+omarchy plugin add https://github.com/greenspotmail/omarchy-ashleymenu --enable
 ```
 
 ## Notes
